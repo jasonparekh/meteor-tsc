@@ -1,6 +1,6 @@
 
 Package.describe({
-	summary: "Experimental advanced TypeScript compiler focusing on speed"
+	summary: "Batch (fast) TypeScript compiler for Meteor"
 });
 
 Package._transitional_registerBuildPlugin({
