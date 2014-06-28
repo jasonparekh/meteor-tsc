@@ -7,12 +7,8 @@ var ts = Npm.require('ts-compiler');
 
 var fsStat = Future.wrap(fs.stat);
 
-this.modTimes = this.modTimes || {};
-// We must use the modTimes before this compilation started (a .ts in a common folder would get its modTime updated during the client compilation phase, and thus the server compilation phase would not see its changes.)
-var precompileModTimes = {}
-for (var k in modTimes) {
-  precompileModTimes[k] = modTimes[k];
-}
+// "this." allows for modTimes to survive across changes to compile-tsc.js (useful during tsc devel)
+this.modTimesByArch = this.modTimesByArch || {};
 
 var tsInputPaths = [];
 var fullPathsToCompileSteps = {};
@@ -26,9 +22,9 @@ Plugin.registerSourceHandler("ts", function (compileStep) {
     return;
   }
 
-  preventUnmodifiedCompilation();
+  preventUnmodifiedCompilation(compileStep.arch);
   compile(compileStep);
-  compilationFinished();
+  compilationFinished(compileStep.arch);
 });
 
 // Save the file input path, and return back to Meteor
@@ -44,15 +40,17 @@ function handleSourceFile(compileStep) {
   fullPathsToCompileSteps[compileStep._fullInputPath] = compileStep;
 }
 
-function preventUnmodifiedCompilation() {
+function preventUnmodifiedCompilation(arch) {
+  modTimesByArch[arch] = modTimesByArch[arch] || {};
+
   var hadModifications = false;
   tsInputPaths.forEach(function(path) {
     stats = fsStat(path).wait();
-    if (typeof(precompileModTimes[path]) === 'undefined' || precompileModTimes[path].toString() !== stats.mtime.toString()) {
+    if (typeof(modTimesByArch[arch][path]) === 'undefined' || modTimesByArch[arch][path].toString() !== stats.mtime.toString()) {
       hadModifications = true;
     }
 
-    modTimes[path] = stats.mtime;
+    modTimesByArch[arch][path] = stats.mtime;
   });
 
   if (!hadModifications) {
@@ -124,7 +122,7 @@ function recordError(err, placeholderCompileStep, errorNumber) {
   });
 }
 
-function compilationFinished() {
+function compilationFinished(arch) {
   tsInputPaths = [];
   fullPathsToCompileSteps = {};
 }
