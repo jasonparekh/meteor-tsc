@@ -4,14 +4,20 @@ var fs = Npm.require('fs');
 var Fiber = Npm.require('fibers');
 var Future = Npm.require('fibers/future');
 var ts = Npm.require('ts-compiler');
+//var storage = Npm.require('node-persist');
 
 var fsStat = Future.wrap(fs.stat);
+//storage.initSync();
 
 // "this." allows for modTimes to survive across changes to compile-tsc.js (useful during tsc devel)
 this.modTimesByArch = this.modTimesByArch || {};
 
+var cachedContents = {};
+var cachedErrorsByArch = {};
+
 var tsInputPaths = [];
 var fullPathsToCompileSteps = {};
+var inputPathsToCompileSteps = {};
 
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
@@ -22,8 +28,9 @@ Plugin.registerSourceHandler("ts", function (compileStep) {
     return;
   }
 
-  preventUnmodifiedCompilation(compileStep.arch);
-  compile(compileStep);
+  var hadMod = checkAgainstModTime(compileStep.arch);
+  if (!hadMod) tsInputPaths = [];
+  compile(compileStep, hadMod);
   compilationFinished(compileStep.arch);
 });
 
@@ -36,35 +43,59 @@ function handleSourceFile(compileStep) {
     return;
   }
 
+  console.log(compileStep.arch, compileStep.inputPath);
   tsInputPaths.push(compileStep.inputPath);
   fullPathsToCompileSteps[compileStep._fullInputPath] = compileStep;
+  inputPathsToCompileSteps[compileStep.inputPath] = compileStep;
 }
 
-function preventUnmodifiedCompilation(arch) {
+function checkAgainstModTime(arch) {
   modTimesByArch[arch] = modTimesByArch[arch] || {};
 
   var hadModifications = false;
   tsInputPaths.forEach(function(path) {
     stats = fsStat(path).wait();
     if (typeof(modTimesByArch[arch][path]) === 'undefined' || modTimesByArch[arch][path].toString() !== stats.mtime.toString()) {
+      console.log(path,"had mods");
       hadModifications = true;
     }
 
     modTimesByArch[arch][path] = stats.mtime;
   });
 
-  if (!hadModifications) {
-    // If at least one file was modified, recompile everything (so we don't have to deal with dep tracking). If no files were modified (e.g. CSS change), skip compilation.
-    tsInputPaths = [];
-  }
+  return hadModifications;
 }
 
-function compile(placeholderCompileStep) {
+function compile(placeholderCompileStep, hadModifications) {
+  var arch = placeholderCompileStep.arch;
+  cachedErrorsByArch[arch] = cachedErrorsByArch[arch] || [];
+
   if (tsInputPaths.length == 0) {
     return;
   }
 
-  var browser = placeholderCompileStep.arch === "browser";
+  if (!hadModifications) {
+    // Short-circuit via cache
+    tsInputPaths.forEach(function(path) {
+      var compileStep = inputPathsToCompileSteps[path];
+
+      compileStep.addJavaScript({
+        path: path + ".js",
+        sourcePath: path,
+        data: cachedContents[path]//storage.getItem(path)
+      })
+    });
+
+    // Replay errors
+    cachedErrorsByArch[arch].forEach(function(args) {
+      recordError(args.err, placeholderCompileStep, args.errorNumber, arch, true);
+    });
+
+    return;
+  }
+
+  cachedErrorsByArch[arch] = [];
+  var browser = arch === "browser";
   var errorCount = 0;
 
   console.log("\nCompiling TypeScript " + (browser ? "client" : "server") + " files...");
@@ -77,7 +108,7 @@ function compile(placeholderCompileStep) {
   };
   ts.compile(tsInputPaths, compileOptions, function(err, results) {
     if (err) {
-      recordError(err, placeholderCompileStep, ++errorCount);
+      recordError(err, placeholderCompileStep, ++errorCount, arch, false);
       return;
     }
 
@@ -86,20 +117,23 @@ function compile(placeholderCompileStep) {
       var tsFullPath = res.name.substr(0, res.name.length-2) + "ts";
       var compileStep = fullPathsToCompileSteps[tsFullPath];
 
-      if (res.text.length == 0) {
-        return;
-      }
-
       compileStep.addJavaScript({
         path: compileStep.inputPath + ".js",
         sourcePath: compileStep.inputPath,
         data: res.text
       });
+
+//      storage.setItem(compileStep.inputPath, res.text);
+      cachedContents[compileStep.inputPath] = res.text;
     });
   });
 }
 
-function recordError(err, placeholderCompileStep, errorNumber) {
+function recordError(err, placeholderCompileStep, errorNumber, arch, isFromCache) {
+  if (!isFromCache) {
+    cachedErrorsByArch[arch].push({err: err, errNumber: errorNumber});
+  }
+
   if (match = tsErrorRegex.exec(err.toString())) {
     var compileStep = fullPathsToCompileSteps[match[1]];
     if (compileStep) {
@@ -109,7 +143,6 @@ function recordError(err, placeholderCompileStep, errorNumber) {
         line: match[2],
         column: match[3]
       });
-
       return;
     }
   }
@@ -125,4 +158,5 @@ function recordError(err, placeholderCompileStep, errorNumber) {
 function compilationFinished(arch) {
   tsInputPaths = [];
   fullPathsToCompileSteps = {};
+  inputPathsToCompileSteps = {};
 }
