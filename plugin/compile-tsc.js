@@ -9,10 +9,12 @@ var ts = Npm.require('ts-compiler');
 var fsStat = Future.wrap(fs.stat);
 //storage.initSync();
 
-var archs = {};
+this.archs = this.archs || {};
 function initArch(archName) {
   archs[archName] = {name: archName};
-  resetCompilationScopedArch(archs[archName]);
+  var arch = archs[archName];
+  arch.modTimes = {};
+  resetCompilationScopedArch(arch);
 }
 
 var cachedPathContents = {};
@@ -21,7 +23,7 @@ var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
 
 Plugin.registerSourceHandler("ts", function (compileStep) {
-  if (typeof(archs[compileStep.archName]) === 'undefined') {
+  if (typeof(archs[compileStep.arch]) === 'undefined') {
     initArch(compileStep.arch);
   }
 
@@ -64,7 +66,6 @@ function checkAgainstModTime(arch) {
   arch.inputPaths.forEach(function(path) {
     stats = fsStat(path).wait();
     if (typeof(arch.modTimes[path]) === 'undefined' || arch.modTimes[path].toString() !== stats.mtime.toString()) {
-      console.log(arch.name, path,"had mods");
       hadModifications = true;
     }
 
@@ -81,7 +82,7 @@ function compile(arch, placeholderCompileStep, hadModifications) {
       compileStep.addJavaScript({
         path: compileStep.inputPath + ".js",
         sourcePath: compileStep.inputPath,
-        data: cachedPathContents[path]//storage.getItem(path)
+        data: cachedPathContents[compileStep.inputPath] || ""//storage.getItem(path)
       })
     });
 
@@ -158,7 +159,6 @@ function recordError(err, placeholderCompileStep, errorNumber, arch, isFromCache
 }
 
 function resetCompilationScopedArch(arch) {
-  arch.modTimes = {};
   arch.cachedErrorReplays = [];
   arch.inputPaths = [];
   arch.compileSteps = [];
