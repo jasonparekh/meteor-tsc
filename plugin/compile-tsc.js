@@ -5,6 +5,15 @@ var Fiber = Npm.require('fibers');
 var Future = Npm.require('fibers/future');
 var ts = Npm.require('ts-compiler');
 
+var fsStat = Future.wrap(fs.stat);
+
+this.modTimes = this.modTimes || {};
+// We must use the modTimes before this compilation started (a .ts in a common folder would get its modTime updated during the client compilation phase, and thus the server compilation phase would not see its changes.)
+var precompileModTimes = {}
+for (var k in modTimes) {
+  precompileModTimes[k] = modTimes[k];
+}
+
 var tsInputPaths = [];
 var fullPathsToCompileSteps = {};
 
@@ -12,12 +21,12 @@ var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
 
 Plugin.registerSourceHandler("ts", function (compileStep) {
-
   if (compileStep.inputPath !== placeholderFileName) {
     handleSourceFile(compileStep);
     return;
   }
 
+  preventUnmodifiedCompilation();
   compile(compileStep);
   compilationFinished();
 });
@@ -35,11 +44,32 @@ function handleSourceFile(compileStep) {
   fullPathsToCompileSteps[compileStep._fullInputPath] = compileStep;
 }
 
+function preventUnmodifiedCompilation() {
+  var hadModifications = false;
+  tsInputPaths.forEach(function(path) {
+    stats = fsStat(path).wait();
+    if (typeof(precompileModTimes[path]) === 'undefined' || precompileModTimes[path].toString() !== stats.mtime.toString()) {
+      hadModifications = true;
+    }
+
+    modTimes[path] = stats.mtime;
+  });
+
+  if (!hadModifications) {
+    // If at least one file was modified, recompile everything (so we don't have to deal with dep tracking). If no files were modified (e.g. CSS change), skip compilation.
+    tsInputPaths = [];
+  }
+}
+
 function compile(placeholderCompileStep) {
+  if (tsInputPaths.length == 0) {
+    return;
+  }
+
   var browser = placeholderCompileStep.arch === "browser";
   var errorCount = 0;
 
-  console.log("\nCompiling TypeScript files " + (browser ? "client" : "server") + "...");
+  console.log("\nCompiling TypeScript " + (browser ? "client" : "server") + " files...");
 
   // AFAICT, this is synchronous (and our callback can get called multiple times if there are errors)
   compileOptions = {
