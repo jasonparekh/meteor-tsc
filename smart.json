@@ -3,7 +3,7 @@
   "description": "Batch Typescript (.ts) compiler for Meteor",
   "homepage": "https://github.com/jasonparekh/meteor-tsc",
   "author": "Jason Parekh <jasonparekh@gmail.com>",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "git": "https://github.com/jasonparekh/meteor-tsc.git",
   "packages": {}
 }
