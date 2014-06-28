@@ -1,4 +1,3 @@
-// TODO Look into benefits of ES5 for server (trade-off is double the compilation time for ES5 vs ES3 on server)
 // TODO Test whether a Meteor project of only server files (or only client files) ends up doing two passes too (if it does not, this will break)
 
 var fs = Npm.require('fs');
@@ -8,7 +7,6 @@ var ts = Npm.require('ts-compiler');
 
 var tsInputPaths = [];
 var fullPathsToCompileSteps = {};
-var placeholderCallCount = 0;
 
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
@@ -20,12 +18,6 @@ Plugin.registerSourceHandler("ts", function (compileStep) {
     return;
   }
 
-  placeholderCallCount++;
-  if (placeholderCallCount < 2) {
-    // Only either client or server compilation has run, still waiting for the other one
-    return;
-  }
-
   compile(compileStep);
   compilationFinished();
 });
@@ -34,12 +26,8 @@ Plugin.registerSourceHandler("ts", function (compileStep) {
 function handleSourceFile(compileStep) {
   // Ensures the placeholder file exists. If the placeholder file is absent, tsInputPaths would never get cleared.
   if (tsInputPaths.indexOf(compileStep.inputPath) != -1) {
-    // This check is to prevent a valid case from complaining (since there are two rounds: client and server.)
-    if (placeholderCallCount == 0) {
-      fs.writeFileSync(placeholderFileName, "");
-      compileStep.error({message: "Missing required \"" + placeholderFileName + "\" file; it has been created (make sure to add it to your .gitignore). You may have to touch a .ts file to trigger another compilation."});
-    }
-
+    fs.writeFileSync(placeholderFileName, "");
+    compileStep.error({message: "Missing required \"" + placeholderFileName + "\" file; it has been created (make sure to add it to your .gitignore). You may have to touch a .ts file to trigger another compilation."});
     return;
   }
 
@@ -48,12 +36,17 @@ function handleSourceFile(compileStep) {
 }
 
 function compile(placeholderCompileStep) {
-  console.log("\nCompiling TypeScript files...");
-
+  var browser = placeholderCompileStep.arch === "browser";
   var errorCount = 0;
 
+  console.log("\nCompiling TypeScript files " + (browser ? "client" : "server") + "...");
+
   // AFAICT, this is synchronous (and our callback can get called multiple times if there are errors)
-  compileOptions = { 'skipWrite': true, 'removeComments': true };
+  compileOptions = {
+    'target': (browser ? 'ES3' : 'ES5'),
+    'skipWrite': true,
+    'removeComments': true
+  };
   ts.compile(tsInputPaths, compileOptions, function(err, results) {
     if (err) {
       recordError(err, placeholderCompileStep, ++errorCount);
@@ -104,5 +97,4 @@ function recordError(err, placeholderCompileStep, errorNumber) {
 function compilationFinished() {
   tsInputPaths = [];
   fullPathsToCompileSteps = {};
-  placeholderCallCount = 0;
 }
