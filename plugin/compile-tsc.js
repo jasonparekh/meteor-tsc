@@ -1,23 +1,24 @@
-// TODO Test whether a Meteor project of only server files (or only client files) ends up doing two passes too (if it does not, this will break)
+// Potential optimization is use ES3 across browser and Meteor, and have one compile
 
 var fs = Npm.require('fs');
 var Fiber = Npm.require('fibers');
 var Future = Npm.require('fibers/future');
 var ts = Npm.require('ts-compiler');
-//var storage = Npm.require('node-persist');
+var storage = Npm.require('node-persist');
 
 var fsStat = Future.wrap(fs.stat);
-//storage.initSync();
+storage.initSync({
+  dir: 'typescript-cache'
+});
 
 this.archs = this.archs || {};
 function initArch(archName) {
   archs[archName] = {name: archName};
   var arch = archs[archName];
   arch.modTimes = {};
+  arch.cachedErrorReplays = [];
   resetCompilationScopedArch(arch);
 }
-
-var cachedPathContents = {};
 
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
@@ -82,7 +83,7 @@ function compile(arch, placeholderCompileStep, hadModifications) {
       compileStep.addJavaScript({
         path: compileStep.inputPath + ".js",
         sourcePath: compileStep.inputPath,
-        data: cachedPathContents[compileStep.inputPath] || ""//storage.getItem(path)
+        data: storage.getItem(b64encode(compileStep.inputPath)) || ""
       })
     });
 
@@ -126,8 +127,7 @@ function compile(arch, placeholderCompileStep, hadModifications) {
         data: res.text
       });
 
-//      storage.setItem(compileStep.inputPath, res.text);
-      cachedPathContents[compileStep.inputPath] = res.text;
+      storage.setItem(b64encode(compileStep.inputPath), res.text || "");
     });
   });
 }
@@ -159,8 +159,11 @@ function recordError(err, placeholderCompileStep, errorNumber, arch, isFromCache
 }
 
 function resetCompilationScopedArch(arch) {
-  arch.cachedErrorReplays = [];
   arch.inputPaths = [];
   arch.compileSteps = [];
   arch.fullPathToCompileSteps = {};
+}
+
+function b64encode(s) {
+  return new Buffer(s).toString('base64');
 }
