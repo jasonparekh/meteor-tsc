@@ -23,6 +23,8 @@ function initArch(archName) {
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
 
+checkForPlaceholderFile();
+
 Plugin.registerSourceHandler("ts", function (compileStep) {
   if (typeof(archs[compileStep.arch]) === 'undefined') {
     initArch(compileStep.arch);
@@ -52,8 +54,7 @@ function handleSourceFile(compileStep) {
 
   // This ensures the placeholder file exists. If the placeholder file is absent, we would have never triggered compilation, so the inputPaths would never have gotten cleared.
   if (arch.inputPaths.indexOf(compileStep.inputPath) != -1) {
-    fs.writeFileSync(placeholderFileName, "");
-    compileStep.error({message: "Missing required \"" + placeholderFileName + "\" file; it has been created (make sure to add it to your .gitignore). You may have to touch a .ts file to trigger another compilation."});
+    checkForPlaceholderFile(compileStep);
     return;
   }
 
@@ -162,6 +163,18 @@ function resetCompilationScopedArch(arch) {
   arch.inputPaths = [];
   arch.compileSteps = [];
   arch.fullPathToCompileSteps = {};
+}
+
+function checkForPlaceholderFile(compileStep) {
+  if (!fs.existsSync(placeholderFileName)) {
+    fs.writeFileSync(placeholderFileName, "");
+    errorMsg = "Missing required \"" + placeholderFileName + "\" file; it has been created (make sure to add it to your .gitignore). You may have to touch a .ts file to trigger another compilation.";
+    if (typeof(compileStep) !== 'undefined') {
+      compileStep.error({message: errorMsg});
+    } else {
+      console.error(errorMsg);
+    }
+  }
 }
 
 function b64encode(s) {
