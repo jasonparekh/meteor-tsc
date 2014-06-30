@@ -1,4 +1,5 @@
 // Potential optimization is use ES3 across browser and Meteor, and have one compile
+// NOTE: We must obey the order that the files are handed to us (otherwise Meteor's guarantees about load order aren't true)
 
 var fs = Npm.require('fs');
 var Fiber = Npm.require('fibers');
@@ -80,13 +81,7 @@ function checkAgainstModTime(arch) {
 function compile(arch, placeholderCompileStep, hadModifications) {
   if (!hadModifications) {
     // Short-circuit via cache
-    arch.compileSteps.forEach(function(compileStep) {
-      compileStep.addJavaScript({
-        path: compileStep.inputPath + ".js",
-        sourcePath: compileStep.inputPath,
-        data: storage.getItem(b64encode(compileStep.inputPath)) || ""
-      })
-    });
+    addJavaScriptFromCacheInOrder(arch);
 
     // Replay errors
     arch.cachedErrorReplays.forEach(function(errReplay) {
@@ -121,15 +116,21 @@ function compile(arch, placeholderCompileStep, hadModifications) {
       // res.name is the theoretically-generated js filename
       var tsFullPath = res.name.substr(0, res.name.length-2) + "ts";
       var compileStep = arch.fullPathToCompileSteps[tsFullPath];
-
-      compileStep.addJavaScript({
-        path: compileStep.inputPath + ".js",
-        sourcePath: compileStep.inputPath,
-        data: res.text
-      });
-
       storage.setItem(b64encode(compileStep.inputPath), res.text || "");
     });
+  });
+
+  addJavaScriptFromCacheInOrder(arch);
+}
+
+function addJavaScriptFromCacheInOrder(arch) {
+  arch.compileSteps.forEach(function(compileStep) {
+    console.log("Adding " + compileStep.inputPath);
+    compileStep.addJavaScript({
+      path: compileStep.inputPath + ".js",
+      sourcePath: compileStep.inputPath,
+      data: storage.getItem(b64encode(compileStep.inputPath)) || ""
+    })
   });
 }
 
