@@ -1,5 +1,13 @@
-// Potential optimization is use ES3 across browser and Meteor, and have one compile
-// NOTE: We must obey the order that the files are handed to us (otherwise Meteor's guarantees about load order aren't true)
+// NOTE: This has inherent issues in a codebase of differing source languages.
+// E.g. imagine I have lib/a.ts, something/foo.coffee (which depends on a.ts),
+// and a bunch of other .ts files. The problem is we batch all of the .ts
+// together and execute the TypeScript compiler when we get the latest .ts
+// file, but by then the coffee compiler has already been compiled.
+// At the moment, Meteor takes addJavaScript calls and places them directly
+// into the index.html in that order, so the coffee will come before
+// our lib/a.ts.js.
+
+// TODO Potential optimization is use ES3 across browser and Meteor, and have one compile
 
 var fs = Npm.require('fs');
 var Fiber = Npm.require('fibers');
