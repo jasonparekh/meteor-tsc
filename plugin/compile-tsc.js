@@ -133,7 +133,6 @@ function compile(arch, placeholderCompileStep, hadModifications) {
 
 function addJavaScriptFromCacheInOrder(arch) {
   arch.compileSteps.forEach(function(compileStep) {
-    console.log("Adding " + compileStep.inputPath);
     compileStep.addJavaScript({
       path: compileStep.inputPath + ".js",
       sourcePath: compileStep.inputPath,
