@@ -106,8 +106,7 @@ function compile(arch, placeholderCompileStep, hadModifications) {
   var errorCount = 0;
   var compileOptions = {
     'target': (arch.name === 'browser' ? 'ES3' : 'ES5'),
-    'skipWrite': true,
-    'removeComments': true
+    'skipWrite': true
   };
 
   // This is synchronous (and our callback will get called multiple times if there are errors)
@@ -124,11 +123,28 @@ function compile(arch, placeholderCompileStep, hadModifications) {
       // res.name is the theoretically-generated js filename
       var tsFullPath = res.name.substr(0, res.name.length-2) + "ts";
       var compileStep = arch.fullPathToCompileSteps[tsFullPath];
-      storage.setItem(b64encode(compileStep.inputPath), res.text || "");
+      var src = processGenSource(res.text || "");
+      storage.setItem(b64encode(compileStep.inputPath), src);
     });
   });
 
   addJavaScriptFromCacheInOrder(arch);
+}
+
+function processGenSource(src) {
+  var lines = src.split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (line.toLowerCase() == "//tsc export" && i + 1 < lines.length) {
+      // Removes "var" for var, function and class definitions
+      lines[i+1] = lines[i+1].replace(/\s?var\s/, "     ");
+      // Replaces the original "var xyz;" (before the above line executed) with a "if (typeof xyz == 'undefined') { xyz = {}; }" for modules
+      lines[i+1] = lines[i+1].replace(/^\s*([$A-Z_][0-9A-Z_$]*);$/i, "if (typeof $1 == 'undefined') { $1 = {}; }");
+      i++;
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function addJavaScriptFromCacheInOrder(arch) {
