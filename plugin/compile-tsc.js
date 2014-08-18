@@ -135,7 +135,7 @@ function processGenSource(src) {
   var lines = src.split("\n");
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
-    if (line.toLowerCase() == "//tsc export" && i + 1 < lines.length) {
+    if (line.toLowerCase().trim() == "//tsc export" && i + 1 < lines.length) {
       // Removes "var" for var, function and class definitions
       lines[i+1] = lines[i+1].replace(/\s?var\s/, "     ");
       // Replaces the original "var xyz;" (before the above line executed) with a "if (typeof xyz == 'undefined') { xyz = {}; }" for modules
