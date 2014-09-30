@@ -31,11 +31,17 @@ function initArch(archName) {
 
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
+var cordovaPlatformsFileName = ".meteor/cordova-platforms";
 
 checkForPlaceholderFile();
 
 Plugin.registerSourceHandler("ts", function (compileStep) {
   if (typeof(archs[compileStep.arch]) === 'undefined') {
+    if (compileStep.arch === 'web.cordova' && !fs.existsSync(cordovaPlatformsFileName)) {
+      // Don't bother compiling for cordova if the 'cordova-platforms' file does not exist
+      return;
+    }
+
     initArch(compileStep.arch);
   }
 

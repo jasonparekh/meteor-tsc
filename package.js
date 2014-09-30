@@ -1,9 +1,9 @@
 
 Package.describe({
 	summary: "Batch (fast) TypeScript compiler for Meteor",
-  version: "1.0.9",
+  version: "1.0.10",
   git: "https://github.com/jasonparekh/meteor-tsc.git",
-	version: "1.0.9"
+	version: "1.0.10"
 });
 
 Package._transitional_registerBuildPlugin({
