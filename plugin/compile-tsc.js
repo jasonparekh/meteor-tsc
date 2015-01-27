@@ -132,7 +132,6 @@ function compile(arch, placeholderCompileStep, hadModifications) {
   // This is synchronous (and our callback will get called multiple times if there are errors)
   tscCompile(arch.inputPaths, compileOptions, function(err, results) {
     if (err) {
-      // TODO
       recordError(err, placeholderCompileStep, ++errorCount, arch, false);
       if (typeof(results) === 'undefined') {
         return;
@@ -156,27 +155,36 @@ function compile(arch, placeholderCompileStep, hadModifications) {
 function tscCompile(inputPaths, compileOptions, cb) {
   var out = temp.mkdirSync('tsc-out');
   var args = '"' + [tscPath, '--outDir', out, '--target', compileOptions.target || 'ES5'].concat(inputPaths).join('" "') + '"';
+
   var fiber = Fiber.current;
+  var execErr, execStdout, execStderr;
   exec(args, function(err, stdout, stderr) {
-    if (stderr) {
-      cb(stderr);
-      fiber.run();
-      return
-    }
-
-    res = glob.sync(path.join(out, '**', '*.js')).map(function(f) {
-      return {
-        name: path.join(process.cwd(), f.substr(out.length + 1)),
-        text: fs.readFileSync(f, {encoding: 'utf8'})
-      }
-    });
-
-    rimraf.sync(out);
-    cb(undefined, res);
+    execErr = err;
+    execStdout = stdout;
+    execStderr = stderr;
     fiber.run();
   });
-
   Fiber.yield();
+
+  if (execStderr) {
+    cb("\n" + execStderr);
+    return
+  }
+
+  if (execStdout) {
+    cb("\n" + execStdout);
+    return
+  }
+
+  res = glob.sync(path.join(out, '**', '*.js')).map(function(f) {
+    return {
+      name: path.join(process.cwd(), f.substr(out.length + 1)),
+      text: fs.readFileSync(f, {encoding: 'utf8'})
+    }
+  });
+
+  rimraf.sync(out);
+  cb(undefined, res);
 }
 
 function processGenSource(src) {
