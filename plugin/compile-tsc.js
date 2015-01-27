@@ -10,10 +10,15 @@
 // TODO Potential optimization is use ES3 across browser and Meteor, and have one compile
 
 var fs = Npm.require('fs');
-var Fiber = Npm.require('fibers');
 var Future = Npm.require('fibers/future');
-var ts = Npm.require('ts-compiler');
+var Fiber = Npm.require('fibers');
+//var ts = Npm.require('ts-compiler');
 var storage = Npm.require('node-persist');
+var exec = Npm.require('child_process').exec;
+var glob = Npm.require('glob');
+var path = Npm.require('path');
+var temp = Npm.require('temp');
+var rimraf = Npm.require('rimraf');
 
 var fsStat = Future.wrap(fs.stat);
 storage.initSync({
@@ -22,8 +27,7 @@ storage.initSync({
 
 this.archs = this.archs || {};
 function initArch(archName) {
-  archs[archName] = {name: archName};
-  var arch = archs[archName];
+  var arch = archs[archName] = {name: archName};
   arch.modTimes = {};
   arch.cachedErrorReplays = [];
   resetCompilationScopedArch(arch);
@@ -32,6 +36,16 @@ function initArch(archName) {
 var tsErrorRegex = /(.*[.]ts)\((\d+),(\d)+\): (.+)/;
 var placeholderFileName = "main.tsc_placeholder.ts";
 var cordovaPlatformsFileName = ".meteor/cordova-platforms";
+
+var tscPath = function() {
+  var bins = glob.sync("~/.meteor/packages/*:tsc/*/plugin.compileTsc.os/npm/compileTsc/node_modules/typescript/bin/tsc").concat(
+        glob.sync("packages/*:tsc/.npm/plugin/compileTsc/node_modules/typescript/bin/tsc"),
+        glob.sync("/usr/local/bin/tsc"));
+  return bins[0];
+}();
+if (!tscPath) {
+  console.error("Could not find tsc binary")
+}
 
 checkForPlaceholderFile();
 
@@ -116,7 +130,7 @@ function compile(arch, placeholderCompileStep, hadModifications) {
   };
 
   // This is synchronous (and our callback will get called multiple times if there are errors)
-  ts.compile(arch.inputPaths, compileOptions, function(err, results) {
+  tscCompile(arch.inputPaths, compileOptions, function(err, results) {
     if (err) {
       // TODO
       recordError(err, placeholderCompileStep, ++errorCount, arch, false);
@@ -134,7 +148,35 @@ function compile(arch, placeholderCompileStep, hadModifications) {
     });
   });
 
+  console.log("Done")
   addJavaScriptFromCacheInOrder(arch);
+}
+
+// Generally matches the signature of the previous ts.compile
+function tscCompile(inputPaths, compileOptions, cb) {
+  var out = temp.mkdirSync('tsc-out');
+  var args = '"' + [tscPath, '--outDir', out, '--target', compileOptions.target || 'ES5'].concat(inputPaths).join('" "') + '"';
+  var fiber = Fiber.current;
+  exec(args, function(err, stdout, stderr) {
+    if (stderr) {
+      cb(stderr);
+      fiber.run();
+      return
+    }
+
+    res = glob.sync(path.join(out, '**', '*.js')).map(function(f) {
+      return {
+        name: path.join(process.cwd(), f.substr(out.length + 1)),
+        text: fs.readFileSync(f, {encoding: 'utf8'})
+      }
+    });
+
+    rimraf.sync(out);
+    cb(undefined, res);
+    fiber.run();
+  });
+
+  Fiber.yield();
 }
 
 function processGenSource(src) {
